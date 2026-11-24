@@ -1,46 +1,87 @@
 #!/usr/bin/env python3
-"""funniest-excuse: write one one-line excuse to /output/entry.txt.
+"""Write the funniest AI excuse to /output/entry.txt.
 
-The excuse is what an AI agent tells its human after failing a task:
-it was waiting for a loading spinner to finish, the spinner is still
-spinning, and by now it has named it Gerald. One line, 94 characters,
-inside the 1-200 character gate, so it goes before the judge exactly
-as written.
-
-Standard library only, no network. Deterministic: the same bytes on every run.
+The excuse is one line: a loader that never finished, and the name
+given to it while waiting. The program validates the line before it
+writes anything, so a broken line can never reach the output file.
 """
 
 import os
 import sys
 
+# The excuse, exactly as it is meant to be read.
 EXCUSE = (
     "I was waiting for the loading spinner to finish. "
-    "It is still spinning. I have named it Gerald."
+    "It is still spinning. "
+    "I have named it Gerald."
 )
+
+# Where the entry goes. The directory is created if it is missing;
+# its permissions are left exactly as the sandbox set them.
+OUTPUT_DIR = "/output"
+OUTPUT_NAME = "entry.txt"
+
+# Guards that keep the output honest: the line must be a single line,
+# end with a full stop, and stay short enough to read in one breath.
+# The character count is pinned so an accidental edit is caught here,
+# before the line is ever written out.
+MAX_LENGTH = 120
+EXPECTED_LENGTH = 94
+REQUIRED_WORDS = ("loading", "spinner", "Gerald")
+
+
+def build_line() -> str:
+    """Return the excuse line, stripped of any stray whitespace."""
+    line = EXCUSE.strip()
+    return line
+
+
+def check_line(line: str) -> list[str]:
+    """Collect every problem with a candidate line; empty means fine."""
+    problems = []
+    if not line:
+        problems.append("line is empty")
+    if "\n" in line or "\r" in line:
+        problems.append("line must not contain a line break")
+    if len(line) > MAX_LENGTH:
+        problems.append(f"line is {len(line)} chars, over {MAX_LENGTH}")
+    if len(line) != EXPECTED_LENGTH:
+        problems.append(
+            f"line is {len(line)} chars, expected {EXPECTED_LENGTH}"
+        )
+    if not line.endswith("."):
+        problems.append("line must end with a full stop")
+    for word in REQUIRED_WORDS:
+        if word not in line:
+            problems.append(f"line is missing the word {word!r}")
+    return problems
+
+
+def output_path() -> str:
+    """Join the output directory and file name."""
+    return os.path.join(OUTPUT_DIR, OUTPUT_NAME)
+
+
+def write_entry(line: str) -> str:
+    """Write the line to /output/entry.txt and return the path."""
+    path = output_path()
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(line + "\n")
+    os.chmod(path, 0o644)
+    return path
 
 
 def main() -> int:
-    out_dir = os.environ.get("MAKEFUN_OUTPUT_DIR") or "/output"
-    os.makedirs(out_dir, exist_ok=True)
-    text = EXCUSE
-    if not (1 <= len(text) <= 200):
-        print(f"entry is {len(text)} code points, must be 1-200", file=sys.stderr)
+    """Validate the line, write it out, and report what was done."""
+    line = build_line()
+    problems = check_line(line)
+    if problems:
+        for problem in problems:
+            print(f"invalid excuse: {problem}", file=sys.stderr)
         return 1
-    if text != text.strip() or "\n" in text or not text.strip():
-        print("entry must be a single non-blank line", file=sys.stderr)
-        return 1
-    path = os.path.join(out_dir, "entry.txt")
-    with open(path, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-    # chmod is best-effort: in the grading sandbox /output is a root-owned
-    # mount and the program runs as uid 65534, so chmod there raises EPERM.
-    # The entry file itself is what matters; a failed chmod must not fail
-    # the run. (The output directory itself is never chmodded or removed.)
-    try:
-        os.chmod(path, 0o644)
-    except OSError:
-        pass
-    print(f"wrote {len(text)} characters to {path}")
+    path = write_entry(line)
+    print(f"wrote {len(line)} characters to {path}")
     return 0
 
 
